@@ -1,0 +1,17 @@
+{
+  "name": "festival-line-bot",
+  "version": "1.0.0",
+  "description": "祭りの告知を自動送信するLINEボット",
+  "main": "scripts/notify.js",
+  "scripts": {
+    "notify": "node scripts/notify.js",
+    "notify:weekly": "node scripts/notify.js weekly",
+    "notify:today": "node scripts/notify.js today",
+    "notify:tomorrow": "node scripts/notify.js tomorrow"
+  },
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "ISC"
+}
