@@ -7,7 +7,10 @@
     "notify": "node scripts/notify.js",
     "notify:weekly": "node scripts/notify.js weekly",
     "notify:today": "node scripts/notify.js today",
-    "notify:tomorrow": "node scripts/notify.js tomorrow"
+    "notify:tomorrow": "node scripts/notify.js tomorrow",
+    "github-secrets": "node scripts/github-secrets-helper.js",
+    "verify-line": "node scripts/verify-line-token.js",
+    "sync-standalone": "node scripts/sync-to-standalone-repo.js"
   },
   "type": "commonjs",
   "engines": {

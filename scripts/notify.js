@@ -11,14 +11,27 @@
  *   GOOGLE_SHEET_ID            Google スプレッドシートの ID
  *   GOOGLE_SHEET_GID           シートの GID（省略可、デフォルト: 0）
  *   TZ                         タイムゾーン（例: Asia/Tokyo）
+ *
+ *   LINE_NOTIFY_DELIVERY       送信形式: flex（既定）| text | image
+ *   LINE_NOTIFY_IMAGE_ORIGINAL_URL  画像メッセージ用の HTTPS URL（オプション）
+ *   LINE_NOTIFY_IMAGE_PREVIEW_URL   プレビュー用 URL（省略時は ORIGINAL と同じ）
+ *   LINE_NOTIFY_NO_FLEX_FALLBACK    1 で Flex 失敗時のテキスト再送を止める
+ *   LINE_NOTIFY_DRY_RUN             1 ならスプレッドシート取得・件数確認のみ（LINE API は呼ばない）
  */
 
 require('./load-env');
 
+const fs = require('fs');
 const { fetchFestivals } = require('./fetch-festivals');
 const { broadcast } = require('./send-line');
+const {
+  buildDayFlexMessage,
+  buildDayTextMessage,
+  buildWeeklyText,
+  buildWeeklyFlex,
+} = require('./festival-message');
 
-const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+const CAROUSEL_MAX = 12;
 
 function toDateStr(date) {
   const y = date.getFullYear();
@@ -27,107 +40,285 @@ function toDateStr(date) {
   return `${y}-${m}-${d}`;
 }
 
-function formatFestival(f) {
-  const parts = [`📍 場所: ${f.place}`];
-  if (f.time)   parts.push(`🕐 時間: ${f.time}`);
-  if (f.detail) parts.push(`📝 ${f.detail}`);
-  return parts.join('\n');
+function getDeliveryMode() {
+  return (process.env.LINE_NOTIFY_DELIVERY || 'flex').toLowerCase();
 }
 
-async function notifyToday(festivals, today) {
+function isDryRun() {
+  return process.env.LINE_NOTIFY_DRY_RUN === '1';
+}
+
+/** @returns {boolean} true なら呼び出し元は return する */
+function finishDryRunIfNeeded(targetCount, outcome, label) {
+  if (!isDryRun()) return false;
+  outcome.sent = false;
+  outcome.detail = `[dry-run] ${label} の送信対象は ${targetCount} 件。LINE API は呼んでいません（LINE_NOTIFY_DRY_RUN=1）。`;
+  console.log(outcome.detail);
+  return true;
+}
+
+function optionalImageMessages() {
+  const orig = process.env.LINE_NOTIFY_IMAGE_ORIGINAL_URL;
+  if (!orig) return [];
+  const prev = process.env.LINE_NOTIFY_IMAGE_PREVIEW_URL || orig;
+  return [
+    {
+      type: 'image',
+      originalContentUrl: orig,
+      previewImageUrl: prev,
+    },
+  ];
+}
+
+/**
+ * Flex が 400 で弾かれたときだけテキストに切り替え（LINE 側仕様・検証エラー対策）
+ * LINE_NOTIFY_NO_FLEX_FALLBACK=1 で無効化
+ */
+async function broadcastFlexWithTextFallback(imgs, flexMsg, text) {
+  const noFallback = process.env.LINE_NOTIFY_NO_FLEX_FALLBACK === '1';
+  try {
+    await broadcast([...imgs, flexMsg]);
+  } catch (err) {
+    const detail = String(err && err.message ? err.message : err);
+    if (!noFallback && /\b400\b/.test(detail)) {
+      console.warn(
+        '[notify] Flex が拒否されたためテキストで再送します（詳細は次の行）',
+      );
+      console.warn(detail);
+      await broadcast([...imgs, { type: 'text', text }]);
+      return;
+    }
+    throw err;
+  }
+}
+
+function resolveDayDelivery(targetCount) {
+  let mode = getDeliveryMode();
+  if (mode === 'flex' && targetCount > CAROUSEL_MAX) {
+    console.warn(
+      `祭りが ${targetCount} 件ありカルーセル上限（${CAROUSEL_MAX}件）を超えるため、テキストで送信します`,
+    );
+    mode = 'text';
+  }
+  return mode;
+}
+
+function uniqueSampleDates(festivals, limit = 12) {
+  return [...new Set(festivals.map(f => f.date))].slice(0, limit);
+}
+
+function appendJobSummary(outcome, mode, now) {
+  const p = process.env.GITHUB_STEP_SUMMARY;
+  if (!p) return;
+  const lines = ['## 祭り告知 LINE 通知', ''];
+  lines.push(
+    `- モード: \`${mode}\` ・ 照合に使った「今日」の日付: \`${toDateStr(now)}\``,
+  );
+  lines.push(`- TZ: \`${process.env.TZ || '(未設定・UTCのまま)'}\``);
+  lines.push('');
+  if (outcome.sent) {
+    lines.push('✅ **LINE Broadcast で送信 API は成功しています。**');
+    lines.push('');
+    lines.push(
+      '届かないときは、受信したいユーザーがこの**公式アカウントを友だち追加**しているか、ブロックしていないかを確認してください。',
+    );
+  } else {
+    lines.push(
+      '⚪ **LINE は送っていません**（該当データがないため。ジョブは緑の成功のままです）。',
+    );
+    lines.push('');
+    lines.push(outcome.detail || '詳細はログを確認してください。');
+    if (outcome.sampleDates && outcome.sampleDates.length) {
+      lines.push('');
+      lines.push(
+        'スプレッドシート上の日付（例）: ' +
+          outcome.sampleDates.map(d => `\`${d}\``).join(', '),
+      );
+    }
+  }
+  lines.push('');
+  fs.appendFileSync(p, lines.join('\n') + '\n');
+}
+
+function printFinalBanner(outcome) {
+  console.log('');
+  console.log('========================================');
+  if (outcome.sent) {
+    console.log('結果: LINE に送信しました（Broadcast 成功）');
+    console.log(
+      '※ 友だち追加していないアカウントには届きません。',
+    );
+  } else {
+    console.log('結果: LINE は送信しませんでした（該当なしなど）');
+    if (outcome.detail) console.log(outcome.detail);
+    if (outcome.sampleDates && outcome.sampleDates.length) {
+      console.log('スプレッドシートの日付例:', outcome.sampleDates.join(', '));
+    }
+  }
+  console.log('========================================');
+}
+
+async function notifyToday(festivals, today, outcome) {
   const todayStr = toDateStr(today);
   const targets = festivals.filter(f => f.date === todayStr);
 
   if (targets.length === 0) {
-    console.log('今日の祭りはありません');
+    outcome.sent = false;
+    if (festivals.length === 0) {
+      outcome.detail =
+        'スプレッドシートに有効な行がありません（祭り名と日付の両方がある行だけ使います）。';
+    } else {
+      outcome.detail = `「今日(${todayStr})」に一致する祭りがありません。モード（today / tomorrow / weekly）と日付列を確認してください。`;
+      outcome.sampleDates = uniqueSampleDates(festivals);
+    }
+    console.log(`今日の祭りはありません（照合日: ${todayStr}）`);
+    if (outcome.sampleDates && outcome.sampleDates.length) {
+      console.log('スプレッドシート内の日付例:', outcome.sampleDates.join(', '));
+    }
     return;
   }
 
-  const lines = [
-    `🎉 本日の祭り情報 (${todayStr}) 🎉`,
-    '',
-  ];
-  targets.forEach(f => {
-    lines.push(`【${f.name}】`);
-    lines.push(formatFestival(f));
-    lines.push('');
-  });
-  lines.push('楽しいお祭りをお楽しみください！');
+  if (finishDryRunIfNeeded(targets.length, outcome, 'today')) return;
 
-  await broadcast(lines.join('\n'));
+  const imgs = optionalImageMessages();
+  const mode = resolveDayDelivery(targets.length);
+
+  if (mode === 'image') {
+    if (imgs.length === 0) {
+      throw new Error(
+        'LINE_NOTIFY_DELIVERY=image のときは LINE_NOTIFY_IMAGE_ORIGINAL_URL（HTTPS）が必要です',
+      );
+    }
+    await broadcast(imgs);
+    outcome.sent = true;
+    return;
+  }
+
+  if (mode === 'text') {
+    const text = buildDayTextMessage(targets, today, 'today');
+    const messages = [...imgs, { type: 'text', text }];
+    await broadcast(messages);
+    outcome.sent = true;
+    return;
+  }
+
+  const flex = buildDayFlexMessage(targets, today, 'today');
+  const text = buildDayTextMessage(targets, today, 'today');
+  await broadcastFlexWithTextFallback(imgs, flex, text);
+  outcome.sent = true;
 }
 
-async function notifyTomorrow(festivals, today) {
+async function notifyTomorrow(festivals, today, outcome) {
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
   const tomorrowStr = toDateStr(tomorrow);
   const targets = festivals.filter(f => f.date === tomorrowStr);
 
   if (targets.length === 0) {
-    console.log('明日の祭りはありません');
+    outcome.sent = false;
+    if (festivals.length === 0) {
+      outcome.detail =
+        'スプレッドシートに有効な行がありません（祭り名と日付の両方がある行だけ使います）。';
+    } else {
+      outcome.detail = `「明日(${tomorrowStr})」に一致する祭りがありません。`;
+      outcome.sampleDates = uniqueSampleDates(festivals);
+    }
+    console.log(`明日の祭りはありません（照合日: ${tomorrowStr}）`);
+    if (outcome.sampleDates && outcome.sampleDates.length) {
+      console.log('スプレッドシート内の日付例:', outcome.sampleDates.join(', '));
+    }
     return;
   }
 
-  const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
-  const dd = String(tomorrow.getDate()).padStart(2, '0');
-  const dow = WEEKDAY_JA[tomorrow.getDay()];
+  if (finishDryRunIfNeeded(targets.length, outcome, 'tomorrow')) return;
 
-  const lines = [
-    `🎊 明日のお祭り情報 (${mm}/${dd}・${dow}) 🎊`,
-    '',
-  ];
-  targets.forEach(f => {
-    lines.push(`【${f.name}】`);
-    lines.push(formatFestival(f));
-    lines.push('');
-  });
-  lines.push('ぜひ遊びに来てください！');
+  const imgs = optionalImageMessages();
+  const mode = resolveDayDelivery(targets.length);
 
-  await broadcast(lines.join('\n'));
+  if (mode === 'image') {
+    if (imgs.length === 0) {
+      throw new Error(
+        'LINE_NOTIFY_DELIVERY=image のときは LINE_NOTIFY_IMAGE_ORIGINAL_URL（HTTPS）が必要です',
+      );
+    }
+    await broadcast(imgs);
+    outcome.sent = true;
+    return;
+  }
+
+  if (mode === 'text') {
+    const text = buildDayTextMessage(targets, tomorrow, 'tomorrow');
+    await broadcast([...imgs, { type: 'text', text }]);
+    outcome.sent = true;
+    return;
+  }
+
+  const flex = buildDayFlexMessage(targets, tomorrow, 'tomorrow');
+  const text = buildDayTextMessage(targets, tomorrow, 'tomorrow');
+  await broadcastFlexWithTextFallback(imgs, flex, text);
+  outcome.sent = true;
 }
 
-async function notifyWeekly(festivals, today) {
-  // 今日から7日間
+async function notifyWeekly(festivals, today, outcome) {
+  const mode = getDeliveryMode();
+
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     return d;
   });
 
-  const thisWeek = days
-    .map(d => {
-      const dateStr = toDateStr(d);
-      const items = festivals.filter(f => f.date === dateStr);
-      return { date: d, dateStr, items };
-    })
-    .filter(entry => entry.items.length > 0);
+  const hasAny = days.some(d => {
+    const dateStr = toDateStr(d);
+    return festivals.some(f => f.date === dateStr);
+  });
 
-  if (thisWeek.length === 0) {
+  if (!hasAny) {
+    outcome.sent = false;
+    if (festivals.length === 0) {
+      outcome.detail =
+        'スプレッドシートに有効な行がありません（祭り名と日付の両方がある行だけ使います）。';
+    } else {
+      outcome.detail =
+        '今日から7日以内に一致する祭りがありません（weekly モード）。';
+      outcome.sampleDates = uniqueSampleDates(festivals);
+    }
     console.log('今週の祭りはありません');
+    if (outcome.sampleDates && outcome.sampleDates.length) {
+      console.log('スプレッドシート内の日付例:', outcome.sampleDates.join(', '));
+    }
     return;
   }
 
-  const lines = [
-    '🗓️ 今週のお祭り情報 🗓️',
-    '',
-  ];
+  const weekTargetCount = festivals.filter(f =>
+    days.some(d => f.date === toDateStr(d)),
+  ).length;
+  if (finishDryRunIfNeeded(weekTargetCount, outcome, 'weekly')) return;
 
-  thisWeek.forEach(entry => {
-    const mm = String(entry.date.getMonth() + 1).padStart(2, '0');
-    const dd = String(entry.date.getDate()).padStart(2, '0');
-    const dow = WEEKDAY_JA[entry.date.getDay()];
-    lines.push(`▼ ${mm}/${dd}（${dow}）`);
-    entry.items.forEach(f => {
-      lines.push(`  ・${f.name}`);
-      if (f.time) lines.push(`    🕐 ${f.time}`);
-      if (f.place) lines.push(`    📍 ${f.place}`);
-    });
-    lines.push('');
-  });
+  const imgs = optionalImageMessages();
 
-  lines.push('詳細はお気軽にお問い合わせください 🎆');
+  if (mode === 'image') {
+    if (imgs.length === 0) {
+      throw new Error(
+        'LINE_NOTIFY_DELIVERY=image のときは LINE_NOTIFY_IMAGE_ORIGINAL_URL（HTTPS）が必要です',
+      );
+    }
+    await broadcast(imgs);
+    outcome.sent = true;
+    return;
+  }
 
-  await broadcast(lines.join('\n'));
+  if (mode === 'text') {
+    const text = buildWeeklyText(festivals, today);
+    await broadcast([...imgs, { type: 'text', text }]);
+    outcome.sent = true;
+    return;
+  }
+
+  const flex = buildWeeklyFlex(festivals, today);
+  const text = buildWeeklyText(festivals, today);
+  await broadcastFlexWithTextFallback(imgs, flex, text);
+  outcome.sent = true;
 }
 
 async function main() {
@@ -135,20 +326,29 @@ async function main() {
   const now = new Date();
 
   console.log(`実行モード: ${mode}  現在時刻: ${now.toISOString()}`);
+  console.log(`通知形式: ${getDeliveryMode()}`);
+  if (isDryRun()) {
+    console.log('LINE_NOTIFY_DRY_RUN=1 … LINE API は呼びません（スプレッドシート検証用）');
+  }
 
   const festivals = await fetchFestivals();
   console.log(`祭り情報を ${festivals.length} 件取得しました`);
 
+  const outcome = { sent: false, detail: '', sampleDates: [] };
+
   if (mode === 'today') {
-    await notifyToday(festivals, now);
+    await notifyToday(festivals, now, outcome);
   } else if (mode === 'tomorrow') {
-    await notifyTomorrow(festivals, now);
+    await notifyTomorrow(festivals, now, outcome);
   } else if (mode === 'weekly') {
-    await notifyWeekly(festivals, now);
+    await notifyWeekly(festivals, now, outcome);
   } else {
     console.error(`不明なモード: ${mode}  (today / tomorrow / weekly)`);
     process.exit(1);
   }
+
+  appendJobSummary(outcome, mode, now);
+  printFinalBanner(outcome);
 }
 
 main().catch(err => {

@@ -2,14 +2,14 @@ name: 祭り告知 LINE 通知
 
 on:
   schedule:
-    # 毎週月曜 8:00 JST (= UTC 日曜 23:00)
+    # 毎週月曜 8:00 JST (= UTC 23:00 の前日日曜) → 今週の祭りまとめ
     - cron: '0 23 * * 0'
-    # 毎日 18:00 JST (= UTC 09:00)
+    # 毎日 18:00 JST (= UTC 09:00) → 明日の祭り告知
     - cron: '0 9 * * *'
-    # 毎日 8:00 JST (= UTC 前日 23:00)
+    # 毎日 8:00 JST (= UTC 23:00 の前日) → 当日の祭り告知
     - cron: '0 23 * * *'
 
-  # 手動実行も可能
+  # 手動実行も可能にする
   workflow_dispatch:
     inputs:
       mode:
@@ -21,9 +21,16 @@ on:
           - today
           - tomorrow
           - weekly
+      dry_run:
+        description: 'ON にすると LINE は送らず、スプレッドシートの該当件数だけ確認（トークン検証なし）'
+        required: false
+        default: false
+        type: boolean
 
 env:
   TZ: Asia/Tokyo
+  # 手動実行かつ dry_run のときだけ 1（スケジュールでは常に空＝送信する）
+  LINE_NOTIFY_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' && '1' || '' }}
 
 jobs:
   weekly:
@@ -35,12 +42,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: LINE トークン検証（無効ならここで失敗）
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_NOTIFY_DRY_RUN: ${{ env.LINE_NOTIFY_DRY_RUN }}
+        run: |
+          if [ -d festival-line-bot ]; then cd festival-line-bot; fi
+          node scripts/verify-line-token.js
       - name: 今週の祭りを送信
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
-        run: node scripts/notify.js weekly
+        run: |
+          if [ -d festival-line-bot ]; then cd festival-line-bot; fi
+          node scripts/notify.js weekly
 
   tomorrow:
     name: 明日の祭り告知（毎日 18:00）
@@ -51,12 +67,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: LINE トークン検証（無効ならここで失敗）
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_NOTIFY_DRY_RUN: ${{ env.LINE_NOTIFY_DRY_RUN }}
+        run: |
+          if [ -d festival-line-bot ]; then cd festival-line-bot; fi
+          node scripts/verify-line-token.js
       - name: 明日の祭りを送信
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
-        run: node scripts/notify.js tomorrow
+        run: |
+          if [ -d festival-line-bot ]; then cd festival-line-bot; fi
+          node scripts/notify.js tomorrow
 
   today:
     name: 当日朝の祭り告知（毎日 8:00）
@@ -67,9 +92,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: LINE トークン検証（無効ならここで失敗）
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_NOTIFY_DRY_RUN: ${{ env.LINE_NOTIFY_DRY_RUN }}
+        run: |
+          if [ -d festival-line-bot ]; then cd festival-line-bot; fi
+          node scripts/verify-line-token.js
       - name: 今日の祭りを送信
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
-        run: node scripts/notify.js today
+        run: |
+          if [ -d festival-line-bot ]; then cd festival-line-bot; fi
+          node scripts/notify.js today
