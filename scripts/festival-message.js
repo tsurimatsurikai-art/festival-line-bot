@@ -199,7 +199,7 @@ function buildCountdownText(sortedFestivals, today) {
   const lines = [
     '━━━━━━━━━━━━━━',
     '📣　お知らせ',
-    '　　（開催の約半年前から毎日お届け）',
+    '　　開催まで毎日お届け',
     `　　${formatDateJa(today)} 現在`,
     '━━━━━━━━━━━━━━',
     '',
@@ -281,7 +281,7 @@ function buildCountdownFlex(sortedFestivals, today) {
       contents: [
         sep(),
         centerText(FLEX_HEADER_TITLE, 'lg', { weight: 'bold' }),
-        centerText('　　開催の約半年前から毎日お届け', 'sm', {
+        centerText('　　開催まで毎日お届け', 'sm', {
           color: '#555555',
           margin: 'xs',
         }),
