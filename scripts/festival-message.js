@@ -104,7 +104,7 @@ function buildFestivalBubble(f, eventDate, mode) {
     bodyContents.push(labeledBlock('🌙　時　間', f.time));
   }
   if (f.detail) {
-    bodyContents.push(labeledBlock('⚠️　連 絡 事 項', f.detail));
+    bodyContents.push(labeledBlock('⚠️　連　絡　事　項', f.detail));
   }
 
   bodyContents.push(sep());
@@ -152,7 +152,7 @@ function buildFestivalTextBlock(f, eventDate, mode) {
     lines.push('', '🌙　時　間', `　　${f.time}`);
   }
   if (f.detail) {
-    lines.push('', '⚠️　連 絡 事 項', `　　${f.detail}`);
+    lines.push('', '⚠️　連　絡　事　項', `　　${f.detail}`);
   }
 
   lines.push('', '━━━━━━━━━━━━━━', '楽しいお祭りをお楽しみください！');
@@ -216,7 +216,7 @@ function buildCountdownText(sortedFestivals, today) {
     lines.push(`  ・【 ${f.name} 】`);
     lines.push(`　　📍 ${f.place || '未定'}`);
     if (f.time) lines.push(`　　🌙 時間 ${f.time}`);
-    if (f.detail) lines.push(`　　⚠ ${f.detail}`);
+    if (f.detail) lines.push(`　　⚠ 連絡事項 ${f.detail}`);
     lines.push('');
   });
 
@@ -265,7 +265,7 @@ function buildCountdownFlex(sortedFestivals, today) {
       block.contents.push(labeledBlock('🌙　時　間', f.time));
     }
     if (f.detail) {
-      block.contents.push(labeledBlock('⚠️　特　記　事　項', f.detail));
+      block.contents.push(labeledBlock('⚠️　連　絡　事　項', f.detail));
     }
 
     rowContents.push(block);
