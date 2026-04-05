@@ -2,11 +2,14 @@
  * 祭り告知用のテキスト・Flex メッセージを組み立てる
  *
  * スプレッドシート列の扱い（当日・翌日モード）:
- * - 時間 → 🌙 前夜祭の行に表示（空なら省略）
- * - 詳細 → ⚠️ 特記事項の行に表示（空なら省略）
+ * - 時間 → 🌙 「時　間」行に表示（空なら省略）
+ * - 詳細 → ⚠️ 連絡事項の行に表示（空なら省略）
  */
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+/** カード先頭の見出し（「祭り情報のお知らせ」ではなく「お知らせ」）。当日・翌日バブルとカウントダウン一覧で使用 */
+const FLEX_HEADER_TITLE = '🎉　お知らせ';
 
 function formatDateJa(date) {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
@@ -88,7 +91,7 @@ function buildFestivalBubble(f, eventDate, mode) {
 
   const bodyContents = [
     sep(),
-    centerText('🎉　祭り情報のお知らせ', 'lg', { weight: 'bold' }),
+    centerText(FLEX_HEADER_TITLE, 'lg', { weight: 'bold' }),
     centerText(`　　${dateStr}`, 'sm', { color: '#555555' }),
     sep(),
     centerText(headline, 'md', { weight: 'bold', margin: 'sm' }),
@@ -98,10 +101,10 @@ function buildFestivalBubble(f, eventDate, mode) {
   ];
 
   if (f.time) {
-    bodyContents.push(labeledBlock('🌙　前　夜　祭', f.time));
+    bodyContents.push(labeledBlock('🌙　時　間', f.time));
   }
   if (f.detail) {
-    bodyContents.push(labeledBlock('⚠️　特 記 事 項', f.detail));
+    bodyContents.push(labeledBlock('⚠️　連 絡 事 項', f.detail));
   }
 
   bodyContents.push(sep());
@@ -131,7 +134,7 @@ function buildFestivalTextBlock(f, eventDate, mode) {
 
   const lines = [
     '━━━━━━━━━━━━━━',
-    '🎉　祭り情報のお知らせ',
+    FLEX_HEADER_TITLE,
     `　　${dateStr}`,
     '━━━━━━━━━━━━━━',
     '',
@@ -146,10 +149,10 @@ function buildFestivalTextBlock(f, eventDate, mode) {
   ];
 
   if (f.time) {
-    lines.push('', '🌙　前　夜　祭', `　　${f.time}`);
+    lines.push('', '🌙　時　間', `　　${f.time}`);
   }
   if (f.detail) {
-    lines.push('', '⚠️　特 記 事 項', `　　${f.detail}`);
+    lines.push('', '⚠️　連 絡 事 項', `　　${f.detail}`);
   }
 
   lines.push('', '━━━━━━━━━━━━━━', '楽しいお祭りをお楽しみください！');
@@ -195,7 +198,7 @@ function buildDayTextMessage(targets, eventDate, mode) {
 function buildCountdownText(sortedFestivals, today) {
   const lines = [
     '━━━━━━━━━━━━━━',
-    '📣　お祭りのお知らせ',
+    '📣　お知らせ',
     '　　（開催の約半年前から毎日お届け）',
     `　　${formatDateJa(today)} 現在`,
     '━━━━━━━━━━━━━━',
@@ -212,13 +215,20 @@ function buildCountdownText(sortedFestivals, today) {
     lines.push(`▼ ${head}`);
     lines.push(`  ・【 ${f.name} 】`);
     lines.push(`　　📍 ${f.place || '未定'}`);
-    if (f.time) lines.push(`　　🌙 前夜祭 ${f.time}`);
+    if (f.time) lines.push(`　　🌙 時間 ${f.time}`);
     if (f.detail) lines.push(`　　⚠ ${f.detail}`);
     lines.push('');
   });
 
-  lines.push('━━━━━━━━━━━━━━', '詳細はお気軽にお問い合わせください 🎆');
+  lines.push('━━━━━━━━━━━━━━', '詳細は祭り会にお問い合わせください');
   return lines.join('\n');
+}
+
+/** カウントダウン行の見出し（当日・翌日モードと同じ字間の「本　日　開　催　！」系） */
+function countdownFlexHeadline(days) {
+  if (days <= 0) return '🎊　本　日　開　催　！';
+  if (days === 1) return '🎊　明　日　開　催　！';
+  return `📅　あと${days}日`;
 }
 
 /**
@@ -227,28 +237,38 @@ function buildCountdownText(sortedFestivals, today) {
 function buildCountdownFlex(sortedFestivals, today) {
   const rowContents = [];
 
-  sortedFestivals.forEach(f => {
+  sortedFestivals.forEach((f, index) => {
     const eventDate = dateFromYmd(f.date);
     const mm = String(eventDate.getMonth() + 1).padStart(2, '0');
     const dd = String(eventDate.getDate()).padStart(2, '0');
     const dow = WEEKDAY_JA[eventDate.getDay()];
     const days = calendarDaysUntil(today, eventDate);
-    const head = `${countdownLabel(days)} · ${mm}/${dd}（${dow}）`;
-    rowContents.push({
-      type: 'text',
-      text: `▼ ${head}`,
-      weight: 'bold',
-      size: 'md',
-      wrap: true,
-      margin: 'lg',
-    });
-    rowContents.push({
-      type: 'text',
-      text: `・【 ${f.name} 】\n　📍 ${f.place || '未定'}${f.time ? `\n　🌙 ${f.time}` : ''}${f.detail ? `\n　⚠ ${f.detail}` : ''}`,
-      size: 'sm',
-      wrap: true,
-      margin: 'sm',
-    });
+
+    const block = {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'none',
+      margin: index === 0 ? 'none' : 'lg',
+      contents: [
+        centerText(countdownFlexHeadline(days), 'md', {
+          weight: 'bold',
+          margin: index === 0 ? 'sm' : 'md',
+        }),
+        centerText(`${mm}/${dd}（${dow}）`, 'sm', { color: '#555555', margin: 'xs' }),
+        sep(),
+        centerText(`【 ${f.name} 】`, 'xl', { weight: 'bold' }),
+        labeledBlock('📍　場　所', f.place || '未定'),
+      ],
+    };
+
+    if (f.time) {
+      block.contents.push(labeledBlock('🌙　時　間', f.time));
+    }
+    if (f.detail) {
+      block.contents.push(labeledBlock('⚠️　特　記　事　項', f.detail));
+    }
+
+    rowContents.push(block);
   });
 
   const bubble = {
@@ -260,14 +280,21 @@ function buildCountdownFlex(sortedFestivals, today) {
       paddingAll: 'lg',
       contents: [
         sep(),
-        centerText('📣　お祭りのお知らせ', 'lg', { weight: 'bold' }),
-        centerText('　　開催の約半年前から毎日お届け', 'sm', { color: '#555555' }),
-        centerText(`　　${formatDateJa(today)} 現在`, 'sm', { color: '#555555' }),
+        centerText(FLEX_HEADER_TITLE, 'lg', { weight: 'bold' }),
+        centerText('　　開催の約半年前から毎日お届け', 'sm', {
+          color: '#555555',
+          margin: 'xs',
+        }),
+        centerText(`　　${formatDateJa(today)} 現在`, 'sm', {
+          color: '#555555',
+          margin: 'sm',
+        }),
         sep(),
         ...rowContents,
         sep(),
-        centerText('詳細はお気軽にお問い合わせください 🎆', 'sm', {
+        centerText('詳細は祭り会にお問い合わせください', 'sm', {
           color: '#444444',
+          margin: 'md',
         }),
       ],
     },
@@ -275,7 +302,7 @@ function buildCountdownFlex(sortedFestivals, today) {
 
   return {
     type: 'flex',
-    altText: `お祭りのお知らせ（${sortedFestivals.length}件）`.slice(0, 400),
+    altText: `お知らせ（${sortedFestivals.length}件）`.slice(0, 400),
     contents: bubble,
   };
 }
