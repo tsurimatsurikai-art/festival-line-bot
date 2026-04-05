@@ -12,6 +12,29 @@ function formatDateJa(date) {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
+/** @param {string} ymd YYYY-MM-DD */
+function dateFromYmd(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function startOfLocalDay(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** @returns {number} today から event までの暦日数（同日なら 0） */
+function calendarDaysUntil(today, eventDate) {
+  const a = startOfLocalDay(today);
+  const b = startOfLocalDay(eventDate);
+  return Math.round((b - a) / 86400000);
+}
+
+function countdownLabel(days) {
+  if (days <= 0) return '本日開催';
+  if (days === 1) return '明日開催';
+  return `あと${days}日`;
+}
+
 function sep() {
   return { type: 'separator', margin: 'md' };
 }
@@ -165,43 +188,32 @@ function buildDayTextMessage(targets, eventDate, mode) {
   return targets.map(f => buildFestivalTextBlock(f, eventDate, mode)).join('\n\n');
 }
 
-function buildWeeklyText(festivals, today) {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    return d;
-  });
-
-  const thisWeek = days
-    .map(d => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${day}`;
-      const items = festivals.filter(f => f.date === dateStr);
-      return { date: d, dateStr, items };
-    })
-    .filter(entry => entry.items.length > 0);
-
+/**
+ * 開催日の約6ヶ月前〜当日までを対象とした一覧（既にフィルタ・日付昇順）
+ * @param {Array<{name:string,date:string,time?:string,place?:string,detail?:string}>} sortedFestivals
+ */
+function buildCountdownText(sortedFestivals, today) {
   const lines = [
     '━━━━━━━━━━━━━━',
-    '🗓️　今週の祭り情報',
-    `　　${formatDateJa(today)} 〜`,
+    '📣　お祭りのお知らせ',
+    '　　（開催の約半年前から毎日お届け）',
+    `　　${formatDateJa(today)} 現在`,
     '━━━━━━━━━━━━━━',
     '',
   ];
 
-  thisWeek.forEach(entry => {
-    const mm = String(entry.date.getMonth() + 1).padStart(2, '0');
-    const dd = String(entry.date.getDate()).padStart(2, '0');
-    const dow = WEEKDAY_JA[entry.date.getDay()];
-    lines.push(`▼ ${mm}/${dd}（${dow}）`);
-    entry.items.forEach(f => {
-      lines.push(`  ・【 ${f.name} 】`);
-      lines.push(`　　📍 ${f.place || '未定'}`);
-      if (f.time) lines.push(`　　🌙 前夜祭 ${f.time}`);
-      if (f.detail) lines.push(`　　⚠ ${f.detail}`);
-    });
+  sortedFestivals.forEach(f => {
+    const eventDate = dateFromYmd(f.date);
+    const dow = WEEKDAY_JA[eventDate.getDay()];
+    const mm = String(eventDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(eventDate.getDate()).padStart(2, '0');
+    const days = calendarDaysUntil(today, eventDate);
+    const head = `${countdownLabel(days)} · ${mm}/${dd}（${dow}）`;
+    lines.push(`▼ ${head}`);
+    lines.push(`  ・【 ${f.name} 】`);
+    lines.push(`　　📍 ${f.place || '未定'}`);
+    if (f.time) lines.push(`　　🌙 前夜祭 ${f.time}`);
+    if (f.detail) lines.push(`　　⚠ ${f.detail}`);
     lines.push('');
   });
 
@@ -209,46 +221,33 @@ function buildWeeklyText(festivals, today) {
   return lines.join('\n');
 }
 
-function buildWeeklyFlex(festivals, today) {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    return d;
-  });
-
-  const thisWeek = days
-    .map(d => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${day}`;
-      const items = festivals.filter(f => f.date === dateStr);
-      return { date: d, items };
-    })
-    .filter(entry => entry.items.length > 0);
-
+/**
+ * @param {Array<{name:string,date:string,time?:string,place?:string,detail?:string}>} sortedFestivals
+ */
+function buildCountdownFlex(sortedFestivals, today) {
   const rowContents = [];
 
-  thisWeek.forEach(entry => {
-    const mm = String(entry.date.getMonth() + 1).padStart(2, '0');
-    const dd = String(entry.date.getDate()).padStart(2, '0');
-    const dow = WEEKDAY_JA[entry.date.getDay()];
+  sortedFestivals.forEach(f => {
+    const eventDate = dateFromYmd(f.date);
+    const mm = String(eventDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(eventDate.getDate()).padStart(2, '0');
+    const dow = WEEKDAY_JA[eventDate.getDay()];
+    const days = calendarDaysUntil(today, eventDate);
+    const head = `${countdownLabel(days)} · ${mm}/${dd}（${dow}）`;
     rowContents.push({
       type: 'text',
-      text: `▼ ${mm}/${dd}（${dow}）`,
+      text: `▼ ${head}`,
       weight: 'bold',
       size: 'md',
       wrap: true,
       margin: 'lg',
     });
-    entry.items.forEach(f => {
-      rowContents.push({
-        type: 'text',
-        text: `・【 ${f.name} 】\n　📍 ${f.place || '未定'}${f.time ? `\n　🌙 ${f.time}` : ''}${f.detail ? `\n　⚠ ${f.detail}` : ''}`,
-        size: 'sm',
-        wrap: true,
-        margin: 'sm',
-      });
+    rowContents.push({
+      type: 'text',
+      text: `・【 ${f.name} 】\n　📍 ${f.place || '未定'}${f.time ? `\n　🌙 ${f.time}` : ''}${f.detail ? `\n　⚠ ${f.detail}` : ''}`,
+      size: 'sm',
+      wrap: true,
+      margin: 'sm',
     });
   });
 
@@ -261,8 +260,9 @@ function buildWeeklyFlex(festivals, today) {
       paddingAll: 'lg',
       contents: [
         sep(),
-        centerText('🗓️　今週の祭り情報', 'lg', { weight: 'bold' }),
-        centerText(`　　${formatDateJa(today)} 〜`, 'sm', { color: '#555555' }),
+        centerText('📣　お祭りのお知らせ', 'lg', { weight: 'bold' }),
+        centerText('　　開催の約半年前から毎日お届け', 'sm', { color: '#555555' }),
+        centerText(`　　${formatDateJa(today)} 現在`, 'sm', { color: '#555555' }),
         sep(),
         ...rowContents,
         sep(),
@@ -275,7 +275,7 @@ function buildWeeklyFlex(festivals, today) {
 
   return {
     type: 'flex',
-    altText: `今週のお祭り（${thisWeek.length}日分）`.slice(0, 400),
+    altText: `お祭りのお知らせ（${sortedFestivals.length}件）`.slice(0, 400),
     contents: bubble,
   };
 }
@@ -284,6 +284,6 @@ module.exports = {
   formatDateJa,
   buildDayFlexMessage,
   buildDayTextMessage,
-  buildWeeklyText,
-  buildWeeklyFlex,
+  buildCountdownText,
+  buildCountdownFlex,
 };

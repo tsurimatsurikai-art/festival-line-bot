@@ -2,25 +2,23 @@ name: 祭り告知 LINE 通知
 
 on:
   schedule:
-    # 毎週月曜 8:00 JST (= UTC 23:00 の前日日曜) → 今週の祭りまとめ
-    - cron: '0 23 * * 0'
     # 毎日 18:00 JST (= UTC 09:00) → 明日の祭り告知
     - cron: '0 9 * * *'
-    # 毎日 8:00 JST (= UTC 23:00 の前日) → 当日の祭り告知
+    # 毎日 8:00 JST (= UTC 23:00 の前日) → 開催約半年前〜当日の祭りを一覧告知
     - cron: '0 23 * * *'
 
   # 手動実行も可能にする
   workflow_dispatch:
     inputs:
       mode:
-        description: '実行モード (today / tomorrow / weekly)'
+        description: '実行モード (today / tomorrow / countdown)'
         required: true
-        default: 'today'
+        default: 'countdown'
         type: choice
         options:
           - today
           - tomorrow
-          - weekly
+          - countdown
       dry_run:
         description: 'ON にすると LINE は送らず、スプレッドシートの該当件数だけ確認（トークン検証なし）'
         required: false
@@ -33,10 +31,10 @@ env:
   LINE_NOTIFY_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' && '1' || '' }}
 
 jobs:
-  weekly:
-    name: 今週まとめ送信（毎週月曜 8:00）
+  today:
+    name: 当日の祭り告知（手動テスト用）
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'weekly' || github.event.schedule == '0 23 * * 0'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'today'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,14 +47,14 @@ jobs:
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/verify-line-token.js
-      - name: 今週の祭りを送信
+      - name: 今日の祭りを送信
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
-          node scripts/notify.js weekly
+          node scripts/notify.js today
 
   tomorrow:
     name: 明日の祭り告知（毎日 18:00）
@@ -83,10 +81,10 @@ jobs:
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/notify.js tomorrow
 
-  today:
-    name: 当日朝の祭り告知（毎日 8:00）
+  countdown:
+    name: 半年前からの祭り告知（毎日 8:00）
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'today' || github.event.schedule == '0 23 * * *'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'countdown' || github.event.schedule == '0 23 * * *'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -99,11 +97,11 @@ jobs:
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/verify-line-token.js
-      - name: 今日の祭りを送信
+      - name: カウントダウン告知を送信
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
-          node scripts/notify.js today
+          node scripts/notify.js countdown

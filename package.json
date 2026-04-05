@@ -5,7 +5,7 @@
   "main": "scripts/notify.js",
   "scripts": {
     "notify": "node scripts/notify.js",
-    "notify:weekly": "node scripts/notify.js weekly",
+    "notify:countdown": "node scripts/notify.js countdown",
     "notify:today": "node scripts/notify.js today",
     "notify:tomorrow": "node scripts/notify.js tomorrow",
     "github-secrets": "node scripts/github-secrets-helper.js",

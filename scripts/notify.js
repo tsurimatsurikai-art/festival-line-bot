@@ -4,7 +4,7 @@
  * 使い方:
  *   node scripts/notify.js today     → 今日の祭りを送信
  *   node scripts/notify.js tomorrow  → 明日の祭りを送信
- *   node scripts/notify.js weekly    → 今週の祭りをまとめて送信
+ *   node scripts/notify.js countdown → 開催約6ヶ月前〜当日までの祭りを一覧送信（毎朝ジョブ用）
  *
  * 環境変数（.env または GitHub Secrets）:
  *   LINE_CHANNEL_ACCESS_TOKEN  LINE チャネルアクセストークン
@@ -27,8 +27,8 @@ const { broadcast } = require('./send-line');
 const {
   buildDayFlexMessage,
   buildDayTextMessage,
-  buildWeeklyText,
-  buildWeeklyFlex,
+  buildCountdownText,
+  buildCountdownFlex,
 } = require('./festival-message');
 
 const CAROUSEL_MAX = 12;
@@ -38,6 +38,39 @@ function toDateStr(date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/** @param {string} ymd */
+function dateFromYmd(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function startOfLocalDay(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function addCalendarMonths(date, deltaMonths) {
+  const x = new Date(date.getTime());
+  x.setMonth(x.getMonth() + deltaMonths);
+  return x;
+}
+
+/**
+ * 開催日の約6ヶ月前（同日ベース）〜開催当日まで、今日がその範囲に入る祭り
+ */
+function filterFestivalsInCountdownWindow(festivals, today) {
+  const today0 = startOfLocalDay(today);
+  return festivals.filter(f => {
+    const event = dateFromYmd(f.date);
+    const event0 = startOfLocalDay(event);
+    const windowStart0 = startOfLocalDay(addCalendarMonths(event, -6));
+    return today0 >= windowStart0 && today0 <= event0;
+  });
+}
+
+function sortFestivalsByDateAsc(list) {
+  return [...list].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
 function getDeliveryMode() {
@@ -168,7 +201,7 @@ async function notifyToday(festivals, today, outcome) {
       outcome.detail =
         'スプレッドシートに有効な行がありません（祭り名と日付の両方がある行だけ使います）。';
     } else {
-      outcome.detail = `「今日(${todayStr})」に一致する祭りがありません。モード（today / tomorrow / weekly）と日付列を確認してください。`;
+      outcome.detail = `「今日(${todayStr})」に一致する祭りがありません。モード（today / tomorrow / countdown）と日付列を確認してください。`;
       outcome.sampleDates = uniqueSampleDates(festivals);
     }
     console.log(`今日の祭りはありません（照合日: ${todayStr}）`);
@@ -259,41 +292,30 @@ async function notifyTomorrow(festivals, today, outcome) {
   outcome.sent = true;
 }
 
-async function notifyWeekly(festivals, today, outcome) {
+async function notifyCountdown(festivals, today, outcome) {
   const mode = getDeliveryMode();
+  const targets = sortFestivalsByDateAsc(
+    filterFestivalsInCountdownWindow(festivals, today),
+  );
 
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    return d;
-  });
-
-  const hasAny = days.some(d => {
-    const dateStr = toDateStr(d);
-    return festivals.some(f => f.date === dateStr);
-  });
-
-  if (!hasAny) {
+  if (targets.length === 0) {
     outcome.sent = false;
     if (festivals.length === 0) {
       outcome.detail =
         'スプレッドシートに有効な行がありません（祭り名と日付の両方がある行だけ使います）。';
     } else {
       outcome.detail =
-        '今日から7日以内に一致する祭りがありません（weekly モード）。';
+        '「開催の約半年前〜当日」の告知ウィンドウに入る祭りがありません（countdown モード）。';
       outcome.sampleDates = uniqueSampleDates(festivals);
     }
-    console.log('今週の祭りはありません');
+    console.log('カウントダウン告知の対象となる祭りはありません');
     if (outcome.sampleDates && outcome.sampleDates.length) {
       console.log('スプレッドシート内の日付例:', outcome.sampleDates.join(', '));
     }
     return;
   }
 
-  const weekTargetCount = festivals.filter(f =>
-    days.some(d => f.date === toDateStr(d)),
-  ).length;
-  if (finishDryRunIfNeeded(weekTargetCount, outcome, 'weekly')) return;
+  if (finishDryRunIfNeeded(targets.length, outcome, 'countdown')) return;
 
   const imgs = optionalImageMessages();
 
@@ -309,14 +331,14 @@ async function notifyWeekly(festivals, today, outcome) {
   }
 
   if (mode === 'text') {
-    const text = buildWeeklyText(festivals, today);
+    const text = buildCountdownText(targets, today);
     await broadcast([...imgs, { type: 'text', text }]);
     outcome.sent = true;
     return;
   }
 
-  const flex = buildWeeklyFlex(festivals, today);
-  const text = buildWeeklyText(festivals, today);
+  const flex = buildCountdownFlex(targets, today);
+  const text = buildCountdownText(targets, today);
   await broadcastFlexWithTextFallback(imgs, flex, text);
   outcome.sent = true;
 }
@@ -340,10 +362,10 @@ async function main() {
     await notifyToday(festivals, now, outcome);
   } else if (mode === 'tomorrow') {
     await notifyTomorrow(festivals, now, outcome);
-  } else if (mode === 'weekly') {
-    await notifyWeekly(festivals, now, outcome);
+  } else if (mode === 'countdown') {
+    await notifyCountdown(festivals, now, outcome);
   } else {
-    console.error(`不明なモード: ${mode}  (today / tomorrow / weekly)`);
+    console.error(`不明なモード: ${mode}  (today / tomorrow / countdown)`);
     process.exit(1);
   }
 
