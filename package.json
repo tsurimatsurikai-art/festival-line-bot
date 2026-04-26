@@ -9,6 +9,7 @@
     "notify:today": "node scripts/notify.js today",
     "notify:tomorrow": "node scripts/notify.js tomorrow",
     "generate:countdown-image": "node scripts/generate-countdown-image.js",
+    "upload:imgbb": "node scripts/upload-to-imgbb.js",
     "github-secrets": "node scripts/github-secrets-helper.js",
     "verify-line": "node scripts/verify-line-token.js",
     "sync-standalone": "node scripts/sync-to-standalone-repo.js"

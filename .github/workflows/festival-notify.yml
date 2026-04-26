@@ -100,9 +100,16 @@ jobs:
           node scripts/generate-countdown-image.js
       - name: 生成画像を公開URLへアップロード
         id: upload_countdown_image
+        env:
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
-          IMAGE_URL=$(curl -fsS -F "reqtype=fileupload" -F "fileToUpload=@assets/generated/countdown.png" "https://catbox.moe/user/api.php")
+          if [ -z "$IMGBB_API_KEY" ]; then
+            echo "GitHub Secret IMGBB_API_KEY が未設定です（ImgBBのAPI key）。"
+            echo "https://api.imgbb.com/ で key を取得し、リポジトリの Secrets に登録してください。"
+            exit 1
+          fi
+          IMAGE_URL=$(node scripts/upload-to-imgbb.js assets/generated/countdown.png)
           if [ -z "$IMAGE_URL" ]; then
             echo "画像URLの取得に失敗しました"
             exit 1
