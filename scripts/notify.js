@@ -396,6 +396,13 @@ async function notifyCountdown(festivals, today, outcome) {
 
   const flex = buildCountdownFlex(targets, today);
   const text = buildCountdownText(targets, today);
+  if (mode === 'flex' && imgs.length === 0) {
+    console.log(
+      '[countdown] 画像は付きません（LINE_NOTIFY_IMAGE_ORIGINAL_URL 系が空です）。flex のみ送ります。',
+    );
+  } else if (imgs.length) {
+    console.log(`[countdown] 画像メッセージ ${imgs.length} 件のあと、flex を送ります。`);
+  }
   await broadcastFlexWithTextFallback(imgs, flex, text);
   outcome.sent = true;
 }

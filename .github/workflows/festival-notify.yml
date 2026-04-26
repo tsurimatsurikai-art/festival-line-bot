@@ -87,7 +87,7 @@ jobs:
   countdown:
     name: 半年前からの祭り告知（毎日 10:07）
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'countdown' || github.event.schedule == '0 23 * * *'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'countdown' || github.event.schedule == '7 1 * * *'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -113,6 +113,31 @@ jobs:
           fi
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "chore: update countdown image"
           git push
+      - name: 公開用リポジトリへ countdown 画像を反映（任意・本体 private のとき）
+        if: ${{ secrets.COUNTDOWN_PUBLIC_GITHUB_PAT != '' && secrets.COUNTDOWN_PUBLIC_GITHUB_REPO != '' }}
+        env:
+          COUNTDOWN_PAT: ${{ secrets.COUNTDOWN_PUBLIC_GITHUB_PAT }}
+          COUNTDOWN_PUBLIC_GITHUB_REPO: ${{ secrets.COUNTDOWN_PUBLIC_GITHUB_REPO }}
+        run: |
+          set -e
+          BASE="${GITHUB_WORKSPACE}"
+          if [ -d festival-line-bot ]; then BASE="${GITHUB_WORKSPACE}/festival-line-bot"; fi
+          ASSET="${BASE}/assets/generated/countdown.png"
+          test -f "$ASSET"
+          CLONE_DIR="/tmp/festival-countdown-public"
+          rm -rf "$CLONE_DIR"
+          git clone "https://x-access-token:${COUNTDOWN_PAT}@github.com/${COUNTDOWN_PUBLIC_GITHUB_REPO}.git" "$CLONE_DIR"
+          mkdir -p "$CLONE_DIR/assets/generated"
+          cp "$ASSET" "$CLONE_DIR/assets/generated/countdown.png"
+          cd "$CLONE_DIR"
+          git add assets/generated/countdown.png
+          if git diff --staged --quiet; then
+            echo "公開リポに差分なし"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "chore: update countdown image"
+          git push
       - name: LINE トークン検証（無効ならここで失敗）
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
@@ -125,8 +150,28 @@ jobs:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
-          LINE_NOTIFY_IMAGE_ORIGINAL_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/assets/generated/countdown.png?run=${{ github.run_id }}
-          LINE_NOTIFY_IMAGE_PREVIEW_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/assets/generated/countdown.png?run=${{ github.run_id }}
+          # 下記いずれか（優先: LINE_COUNTDOWN_IMAGE_RAW_BASE_URL ＞ COUNTDOWN_PUBLIC 参照 ＞ 本リポ raw）
+          LINE_COUNTDOWN_IMAGE_RAW_BASE_URL: ${{ secrets.LINE_COUNTDOWN_IMAGE_RAW_BASE_URL }}
+          COUNTDOWN_PUBLIC_GITHUB_REPO: ${{ secrets.COUNTDOWN_PUBLIC_GITHUB_REPO }}
         run: |
+          # モノレポ（リポ直下に festival-line-bot/ がある）のときは raw のパスもサブフォルダ付きにする
+          ASSET_PREFIX=""
+          if [ -d "${GITHUB_WORKSPACE}/festival-line-bot" ]; then
+            ASSET_PREFIX="festival-line-bot/"
+          fi
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
+          RUN_ID="${{ github.run_id }}"
+          PRIV="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}/${ASSET_PREFIX}assets/generated/countdown.png?run=${RUN_ID}"
+          if [ -n "${LINE_COUNTDOWN_IMAGE_RAW_BASE_URL:-}" ]; then
+            if [[ "$LINE_COUNTDOWN_IMAGE_RAW_BASE_URL" == *"?"* ]]; then
+              export LINE_NOTIFY_IMAGE_ORIGINAL_URL="${LINE_COUNTDOWN_IMAGE_RAW_BASE_URL}&run=${RUN_ID}"
+            else
+              export LINE_NOTIFY_IMAGE_ORIGINAL_URL="${LINE_COUNTDOWN_IMAGE_RAW_BASE_URL}?run=${RUN_ID}"
+            fi
+          elif [ -n "${COUNTDOWN_PUBLIC_GITHUB_REPO:-}" ]; then
+            export LINE_NOTIFY_IMAGE_ORIGINAL_URL="https://raw.githubusercontent.com/${COUNTDOWN_PUBLIC_GITHUB_REPO}/main/assets/generated/countdown.png?run=${RUN_ID}"
+          else
+            export LINE_NOTIFY_IMAGE_ORIGINAL_URL="$PRIV"
+          fi
+          export LINE_NOTIFY_IMAGE_PREVIEW_URL="$LINE_NOTIFY_IMAGE_ORIGINAL_URL"
           node scripts/notify.js countdown

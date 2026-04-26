@@ -77,13 +77,15 @@ function escapeXml(s) {
 }
 
 function buildOverlaySvg(width, height, days, sendDate) {
+  // 「日」はテンプレ上では白矩形で隠されるため、ここで同じスタイルで描く（"99日" 幅に合わせてやや小さめ）
+  const label = `${days}日`;
   const digitsY = Math.round(height * 0.57);
   const dateY = Math.round(height * 0.79);
-  const digitsFont = Math.round(width * 0.48);
+  const digitsFont = Math.round(width * 0.4);
   const dateFont = Math.round(width * 0.11);
 
   return `
-<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" overflow="visible">
   <rect x="0" y="${Math.round(height * 0.21)}" width="${width}" height="${Math.round(height * 0.47)}" fill="#ffffff"/>
   <rect x="${Math.round(width * 0.1)}" y="${Math.round(height * 0.63)}" width="${Math.round(width * 0.8)}" height="${Math.round(height * 0.22)}" fill="#ffffff"/>
   <rect x="${Math.round(width * 0.82)}" y="${Math.round(height * 0.52)}" width="${Math.round(width * 0.16)}" height="${Math.round(height * 0.22)}" fill="#ffffff"/>
@@ -99,7 +101,7 @@ function buildOverlaySvg(width, height, days, sendDate) {
     font-family="'Arial Black', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif"
     font-size="${digitsFont}"
     font-weight="900"
-  >${escapeXml(days)}</text>
+  >${escapeXml(label)}</text>
 
   <text
     x="${Math.round(width * 0.5)}"
