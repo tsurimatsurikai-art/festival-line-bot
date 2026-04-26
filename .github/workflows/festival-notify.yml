@@ -4,8 +4,8 @@ on:
   schedule:
     # 毎日 18:00 JST (= UTC 09:00) → 明日の祭り告知
     - cron: '0 9 * * *'
-    # 毎日 8:00 JST (= UTC 23:00 の前日) → 開催約半年前〜当日の祭りを一覧告知
-    - cron: '0 23 * * *'
+    # 毎日 10:07 JST (= UTC 01:07) → 開催約半年前〜当日の祭りを一覧告知
+    - cron: '7 1 * * *'
 
   # 手動実行も可能にする
   workflow_dispatch:
@@ -82,7 +82,7 @@ jobs:
           node scripts/notify.js tomorrow
 
   countdown:
-    name: 半年前からの祭り告知（毎日 8:00）
+    name: 半年前からの祭り告知（毎日 10:07）
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'countdown' || github.event.schedule == '0 23 * * *'
     steps:
