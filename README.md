@@ -108,7 +108,7 @@ npm run github-secrets
   - Canva や Figma、スマホの画像編集アプリでカード画像を作成し、自サイト・オブジェクトストレージ・ブログ等にアップロードした URL を指定します。
   - `.env` に `LINE_NOTIFY_IMAGE_ORIGINAL_URL`（必須）と `LINE_NOTIFY_IMAGE_PREVIEW_URL`（任意、省略時は ORIGINAL と同じ）を書くと、**カードの前に画像メッセージが 1 通**付きます（自作画像に文言を全部載せたい場合は `LINE_NOTIFY_DELIVERY=image` で画像のみも可）。
   - `countdown` モード専用に `LINE_NOTIFY_COUNTDOWN_IMAGE_ORIGINAL_URL_TEMPLATE` を使うと、URL 文字列中の `{days}` / `{sendDate}` / `{sendDateEncoded}` を毎回展開できます。基準日は毎年 **10/17**、日数は **99 を上限**として計算し、`sendDate` は `4月26日(日)` 形式です。
-  - GitHub Actions の `countdown` ジョブは `scripts/generate-countdown-image.js` で画像を自動生成し、**ImgBB**（API）にアップロードして得た直リンクURLで通知します（数字と黒い日付が毎日更新されます）。**Catbox 等はCIから 412 になることがあり避けます。** リポジトリの **GitHub Secret `IMGBB_API_KEY`**（[ImgBB API](https://api.imgbb.com/)）が必須です。
+  - GitHub Actions の `countdown` ジョブは `scripts/generate-countdown-image.js` で画像を自動生成し、生成物を `assets/generated/countdown.png` として **リポジトリにコミット**してから、`raw.githubusercontent.com` のURLで通知します（数字と黒い日付が毎日更新されます）。`https://ibb.co/...` のような**ページ用URL**は使えないため、テンプレは **i.ibb.co の直リンク**（例: 掲載ページ [ImgBB: 1](https://ibb.co/d44qhpFk) から取れる *Image link*）を使います。**リポジトリが非公開**だと `raw.githubusercontent.com` は取得できないことがあり、LINEの画像表示が壊れます（その場合はリポジトリを公開、または画像だけ公開配信する別手段が必要です）。
 
 #### 手動でテスト実行する
 
