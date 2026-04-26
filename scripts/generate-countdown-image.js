@@ -8,6 +8,7 @@
  * 環境変数（任意）:
  * - COUNTDOWN_TEMPLATE_IMAGE_URL: ベース画像 URL
  * - COUNTDOWN_IMAGE_OUTPUT_PATH: 出力先（既定: assets/generated/countdown.png）
+ * - COUNTDOWN_TEST_DATE: テスト用日付（YYYY-MM-DD）
  */
 
 require('./load-env');
@@ -51,6 +52,19 @@ function countdownDays(today) {
 function formatSendDateJa(today) {
   const w = ['日', '月', '火', '水', '木', '金', '土'];
   return `${today.getMonth() + 1}月${today.getDate()}日(${w[today.getDay()]})`;
+}
+
+function parseTestDate(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) {
+    throw new Error('COUNTDOWN_TEST_DATE は YYYY-MM-DD 形式で指定してください');
+  }
+  const y = Number(m[1]);
+  const mm = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mm - 1, d);
 }
 
 function escapeXml(s) {
@@ -111,7 +125,7 @@ async function fetchImageBuffer(url) {
 async function main() {
   const templateUrl = process.env.COUNTDOWN_TEMPLATE_IMAGE_URL || DEFAULT_TEMPLATE_URL;
   const outputPath = process.env.COUNTDOWN_IMAGE_OUTPUT_PATH || DEFAULT_OUTPUT_PATH;
-  const today = new Date();
+  const today = parseTestDate(process.env.COUNTDOWN_TEST_DATE) || new Date();
   const days = countdownDays(today);
   const sendDate = formatSendDateJa(today);
 

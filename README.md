@@ -108,7 +108,7 @@ npm run github-secrets
   - Canva や Figma、スマホの画像編集アプリでカード画像を作成し、自サイト・オブジェクトストレージ・ブログ等にアップロードした URL を指定します。
   - `.env` に `LINE_NOTIFY_IMAGE_ORIGINAL_URL`（必須）と `LINE_NOTIFY_IMAGE_PREVIEW_URL`（任意、省略時は ORIGINAL と同じ）を書くと、**カードの前に画像メッセージが 1 通**付きます（自作画像に文言を全部載せたい場合は `LINE_NOTIFY_DELIVERY=image` で画像のみも可）。
   - `countdown` モード専用に `LINE_NOTIFY_COUNTDOWN_IMAGE_ORIGINAL_URL_TEMPLATE` を使うと、URL 文字列中の `{days}` / `{sendDate}` / `{sendDateEncoded}` を毎回展開できます。基準日は毎年 **10/17**、日数は **99 を上限**として計算し、`sendDate` は `4月26日(日)` 形式です。
-  - GitHub Actions の `countdown` ジョブは `scripts/generate-countdown-image.js` で画像を自動生成し、`assets/generated/countdown.png` を更新してから通知します（数字と黒い日付が毎日更新されます）。
+  - GitHub Actions の `countdown` ジョブは `scripts/generate-countdown-image.js` で画像を自動生成し、毎回公開URLへアップロードしてから通知します（数字と黒い日付が毎日更新されます）。
 
 #### 手動でテスト実行する
 

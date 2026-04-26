@@ -30,9 +30,6 @@ env:
   # 手動実行かつ dry_run のときだけ 1（スケジュールでは常に空＝送信する）
   LINE_NOTIFY_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' && '1' || '' }}
 
-permissions:
-  contents: write
-
 jobs:
   today:
     name: 当日の祭り告知（手動テスト用）
@@ -101,16 +98,17 @@ jobs:
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/generate-countdown-image.js
-      - name: 生成画像をリポジトリに反映
+      - name: 生成画像を公開URLへアップロード
+        id: upload_countdown_image
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
-          git add assets/generated/countdown.png
-          if git diff --cached --quiet; then
-            echo "画像差分なし"
-            exit 0
+          IMAGE_URL=$(curl -fsS -F "reqtype=fileupload" -F "fileToUpload=@assets/generated/countdown.png" "https://catbox.moe/user/api.php")
+          if [ -z "$IMAGE_URL" ]; then
+            echo "画像URLの取得に失敗しました"
+            exit 1
           fi
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "chore: update countdown image"
-          git push
+          echo "image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
+          echo "アップロードURL: $IMAGE_URL"
       - name: LINE トークン検証（無効ならここで失敗）
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
@@ -123,8 +121,8 @@ jobs:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
-          LINE_NOTIFY_IMAGE_ORIGINAL_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/assets/generated/countdown.png?run=${{ github.run_id }}
-          LINE_NOTIFY_IMAGE_PREVIEW_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/assets/generated/countdown.png?run=${{ github.run_id }}
+          LINE_NOTIFY_IMAGE_ORIGINAL_URL: ${{ steps.upload_countdown_image.outputs.image_url }}
+          LINE_NOTIFY_IMAGE_PREVIEW_URL: ${{ steps.upload_countdown_image.outputs.image_url }}
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/notify.js countdown
