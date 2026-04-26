@@ -15,6 +15,10 @@
  *   LINE_NOTIFY_DELIVERY       送信形式: flex（既定）| text | image
  *   LINE_NOTIFY_IMAGE_ORIGINAL_URL  画像メッセージ用の HTTPS URL（オプション）
  *   LINE_NOTIFY_IMAGE_PREVIEW_URL   プレビュー用 URL（省略時は ORIGINAL と同じ）
+ *   LINE_NOTIFY_COUNTDOWN_IMAGE_ORIGINAL_URL_TEMPLATE
+ *                                   countdown 専用画像 URL テンプレート（{days}, {sendDate}, {sendDateEncoded} を展開）
+ *   LINE_NOTIFY_COUNTDOWN_IMAGE_PREVIEW_URL_TEMPLATE
+ *                                   countdown 専用プレビュー URL テンプレート（省略時は ORIGINAL_TEMPLATE を使用）
  *   LINE_NOTIFY_NO_FLEX_FALLBACK    1 で Flex 失敗時のテキスト再送を止める
  *   LINE_NOTIFY_DRY_RUN             1 ならスプレッドシート取得・件数確認のみ（LINE API は呼ばない）
  */
@@ -50,6 +54,12 @@ function startOfLocalDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+function calendarDaysUntil(today, eventDate) {
+  const a = startOfLocalDay(today);
+  const b = startOfLocalDay(eventDate);
+  return Math.round((b - a) / 86400000);
+}
+
 function addCalendarMonths(date, deltaMonths) {
   const x = new Date(date.getTime());
   x.setMonth(x.getMonth() + deltaMonths);
@@ -81,6 +91,39 @@ function isDryRun() {
   return process.env.LINE_NOTIFY_DRY_RUN === '1';
 }
 
+function formatDateJaShortWithDow(date) {
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  return `${date.getMonth() + 1}月${date.getDate()}日(${weekdays[date.getDay()]})`;
+}
+
+function resolveCountdownTargetDate(today) {
+  const thisYear = today.getFullYear();
+  const candidate = new Date(thisYear, 9, 17); // 10月17日（0-based month）
+  if (startOfLocalDay(today) <= startOfLocalDay(candidate)) {
+    return candidate;
+  }
+  return new Date(thisYear + 1, 9, 17);
+}
+
+function countdownImageTemplateVars(today) {
+  const target = resolveCountdownTargetDate(today);
+  const daysRaw = calendarDaysUntil(today, target);
+  const days = Math.min(99, Math.max(0, daysRaw));
+  const sendDate = formatDateJaShortWithDow(today);
+  return {
+    days: String(days),
+    sendDate,
+    sendDateEncoded: encodeURIComponent(sendDate),
+  };
+}
+
+function expandImageUrlTemplate(template, vars) {
+  if (!template) return '';
+  return template.replace(/\{(days|sendDate|sendDateEncoded)\}/g, (_, key) => {
+    return vars[key] || '';
+  });
+}
+
 /** @returns {boolean} true なら呼び出し元は return する */
 function finishDryRunIfNeeded(targetCount, outcome, label) {
   if (!isDryRun()) return false;
@@ -90,10 +133,24 @@ function finishDryRunIfNeeded(targetCount, outcome, label) {
   return true;
 }
 
-function optionalImageMessages() {
-  const orig = process.env.LINE_NOTIFY_IMAGE_ORIGINAL_URL;
+function optionalImageMessages(mode, today) {
+  let orig = process.env.LINE_NOTIFY_IMAGE_ORIGINAL_URL || '';
+  let prev = process.env.LINE_NOTIFY_IMAGE_PREVIEW_URL || orig;
+
+  if (mode === 'countdown' && today) {
+    const origTemplate = process.env.LINE_NOTIFY_COUNTDOWN_IMAGE_ORIGINAL_URL_TEMPLATE;
+    if (origTemplate) {
+      const vars = countdownImageTemplateVars(today);
+      const prevTemplate =
+        process.env.LINE_NOTIFY_COUNTDOWN_IMAGE_PREVIEW_URL_TEMPLATE ||
+        origTemplate;
+      orig = expandImageUrlTemplate(origTemplate, vars);
+      prev = expandImageUrlTemplate(prevTemplate, vars);
+    }
+  }
+
   if (!orig) return [];
-  const prev = process.env.LINE_NOTIFY_IMAGE_PREVIEW_URL || orig;
+  if (!prev) prev = orig;
   return [
     {
       type: 'image',
@@ -213,7 +270,7 @@ async function notifyToday(festivals, today, outcome) {
 
   if (finishDryRunIfNeeded(targets.length, outcome, 'today')) return;
 
-  const imgs = optionalImageMessages();
+  const imgs = optionalImageMessages('today', today);
   const mode = resolveDayDelivery(targets.length);
 
   if (mode === 'image') {
@@ -265,13 +322,13 @@ async function notifyTomorrow(festivals, today, outcome) {
 
   if (finishDryRunIfNeeded(targets.length, outcome, 'tomorrow')) return;
 
-  const imgs = optionalImageMessages();
+  const imgs = optionalImageMessages('tomorrow', today);
   const mode = resolveDayDelivery(targets.length);
 
   if (mode === 'image') {
     if (imgs.length === 0) {
       throw new Error(
-        'LINE_NOTIFY_DELIVERY=image のときは LINE_NOTIFY_IMAGE_ORIGINAL_URL（HTTPS）が必要です',
+        'LINE_NOTIFY_DELIVERY=image のときは LINE_NOTIFY_IMAGE_ORIGINAL_URL（HTTPS）または LINE_NOTIFY_COUNTDOWN_IMAGE_ORIGINAL_URL_TEMPLATE が必要です',
       );
     }
     await broadcast(imgs);
@@ -317,7 +374,7 @@ async function notifyCountdown(festivals, today, outcome) {
 
   if (finishDryRunIfNeeded(targets.length, outcome, 'countdown')) return;
 
-  const imgs = optionalImageMessages();
+  const imgs = optionalImageMessages('countdown', today);
 
   if (mode === 'image') {
     if (imgs.length === 0) {
