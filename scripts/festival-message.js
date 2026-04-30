@@ -4,11 +4,13 @@
  * スプレッドシート列の扱い（当日・翌日モード）:
  * - 時間 → 🌙 「時　間」行に表示（空なら省略）
  * - 詳細 → ⚠️ 連絡事項の行に表示（空なら省略）
+ *
+ * countdown: 「日付」列は前夜祭の日（残り日数は前夜祭当日までの暦日数）
  */
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
-/** カード先頭の見出し（「祭り情報のお知らせ」ではなく「お知らせ」）。当日・翌日バブルとカウントダウン一覧で使用 */
+/** カード先頭の見出し（「祭り情報のお知らせ」ではなく「お知らせ」）。当日・翌日バブルと countdown で使用 */
 const FLEX_HEADER_TITLE = '🎉　お知らせ';
 
 function formatDateJa(date) {
@@ -32,10 +34,55 @@ function calendarDaysUntil(today, eventDate) {
   return Math.round((b - a) / 86400000);
 }
 
+/**
+ * カウントダウン用の画像元 URL（1 通目の画像メッセージ・Flex 内の整合用。必須）
+ * @returns {string}
+ */
+function getCountdownImageOriginalUrl() {
+  const o = process.env.LINE_COUNTDOWN_IMAGE_ORIGINAL_URL;
+  if (!o || String(o).trim() === '') {
+    throw new Error('LINE_COUNTDOWN_IMAGE_ORIGINAL_URL を設定してください');
+  }
+  return String(o).trim();
+}
+
+/**
+ * プレビュー用。未指定時は original と同じ
+ * @returns {string}
+ */
+function getCountdownImagePreviewUrl() {
+  const p = process.env.LINE_COUNTDOWN_IMAGE_PREVIEW_URL;
+  if (p && String(p).trim() !== '') {
+    return String(p).trim();
+  }
+  return getCountdownImageOriginalUrl();
+}
+
+/**
+ * 1 通目: 画像メッセージ（Vercel 等。環境変数の URL をそのまま使う）
+ * @returns {{ type: 'image', originalContentUrl: string, previewImageUrl: string }}
+ */
+function getCountdownLeaderImageMessage() {
+  return {
+    type: 'image',
+    originalContentUrl: getCountdownImageOriginalUrl(),
+    previewImageUrl: getCountdownImagePreviewUrl(),
+  };
+}
+
+/**
+ * 今日から前夜祭日（スプレッドシートの日付列）までの暦日数
+ * @param {string} eveYmd YYYY-MM-DD
+ * @param {Date} today
+ */
+function daysUntilEveFestival(eveYmd, today) {
+  return calendarDaysUntil(today, dateFromYmd(eveYmd));
+}
+
 function countdownLabel(days) {
-  if (days <= 0) return '本日開催';
-  if (days === 1) return '明日開催';
-  return `あと${days}日`;
+  if (days <= 0) return '前夜祭は本日';
+  if (days === 1) return '前夜祭は明日';
+  return `前夜祭まで あと${days}日`;
 }
 
 function sep() {
@@ -199,8 +246,8 @@ function buildCountdownText(sortedFestivals, today) {
   const lines = [
     '━━━━━━━━━━━━━━',
     '📣　お知らせ',
-    '　　開催まで毎日お届け',
-    `　　${formatDateJa(today)} 現在`,
+    '　　前夜祭まで 毎日お届け',
+    `　　（日付＝前夜祭の日）  ${formatDateJa(today)} 現在`,
     '━━━━━━━━━━━━━━',
     '',
   ];
@@ -210,8 +257,11 @@ function buildCountdownText(sortedFestivals, today) {
     const dow = WEEKDAY_JA[eventDate.getDay()];
     const mm = String(eventDate.getMonth() + 1).padStart(2, '0');
     const dd = String(eventDate.getDate()).padStart(2, '0');
-    const days = calendarDaysUntil(today, eventDate);
-    const head = `${countdownLabel(days)} · ${mm}/${dd}（${dow}）`;
+    const days =
+      typeof f.daysUntilEve === 'number'
+        ? f.daysUntilEve
+        : daysUntilEveFestival(f.date, today);
+    const head = `${countdownLabel(days)} · ${mm}/${dd}（${dow}） 前夜祭`;
     lines.push(`▼ ${head}`);
     lines.push(`  ・【 ${f.name} 】`);
     lines.push(`　　📍 ${f.place || '未定'}`);
@@ -224,86 +274,102 @@ function buildCountdownText(sortedFestivals, today) {
   return lines.join('\n');
 }
 
-/** カウントダウン行の見出し（当日・翌日モードと同じ字間の「本　日　開　催　！」系） */
-function countdownFlexHeadline(days) {
-  if (days <= 0) return '🎊　本　日　開　催　！';
-  if (days === 1) return '🎊　明　日　開　催　！';
-  return `📅　あと${days}日`;
-}
-
 /**
- * @param {Array<{name:string,date:string,time?:string,place?:string,detail?:string}>} sortedFestivals
+ * 1件分の Flex バブル（本文のみ。イラストは notify の 1 通目 image で送る）
+ * @param {object} f
+ * @param {Date} today
+ * @param {string} _contextUrl 内部整合用（空なら不可）
  */
-function buildCountdownFlex(sortedFestivals, today) {
-  const rowContents = [];
+function buildCountdownEveCardBubble(f, today, _contextUrl) {
+  if (!String(_contextUrl || '').trim()) {
+    throw new Error('countdown: 画像元 URL がありません');
+  }
+  const days =
+    typeof f.daysUntilEve === 'number'
+      ? f.daysUntilEve
+      : daysUntilEveFestival(f.date, today);
+  const d = Math.max(0, days);
+  const numberText = String(d);
+  const eventDate = dateFromYmd(f.date);
+  const mm = String(eventDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(eventDate.getDate()).padStart(2, '0');
+  const dow = WEEKDAY_JA[eventDate.getDay()];
 
-  sortedFestivals.forEach((f, index) => {
-    const eventDate = dateFromYmd(f.date);
-    const mm = String(eventDate.getMonth() + 1).padStart(2, '0');
-    const dd = String(eventDate.getDate()).padStart(2, '0');
-    const dow = WEEKDAY_JA[eventDate.getDay()];
-    const days = calendarDaysUntil(today, eventDate);
+  const bodyContents = [
+    centerText(numberText, '5xl', {
+      weight: 'bold',
+      color: '#E91E63',
+      margin: 'md',
+    }),
+    sep(),
+    centerText(FLEX_HEADER_TITLE, 'lg', { weight: 'bold' }),
+    centerText('前夜祭まで 毎日お届け', 'sm', { color: '#555555', margin: 'xs' }),
+    centerText(`${formatDateJa(today)} 現在（日付列＝前夜祭）`, 'sm', {
+      color: '#555555',
+      margin: 'sm',
+    }),
+    sep(),
+    centerText(`前夜祭  ${mm}/${dd}（${dow}）`, 'sm', { color: '#555555' }),
+    sep(),
+    centerText(`【 ${f.name} 】`, 'xl', { weight: 'bold' }),
+    labeledBlock('📍　場　所', f.place || '未定'),
+  ];
 
-    const block = {
-      type: 'box',
-      layout: 'vertical',
-      spacing: 'none',
-      margin: index === 0 ? 'none' : 'lg',
-      contents: [
-        centerText(countdownFlexHeadline(days), 'md', {
-          weight: 'bold',
-          margin: index === 0 ? 'sm' : 'md',
-        }),
-        centerText(`${mm}/${dd}（${dow}）`, 'sm', { color: '#555555', margin: 'xs' }),
-        sep(),
-        centerText(`【 ${f.name} 】`, 'xl', { weight: 'bold' }),
-        labeledBlock('📍　場　所', f.place || '未定'),
-      ],
-    };
+  if (f.time) {
+    bodyContents.push(labeledBlock('🌙　時　間', f.time));
+  }
+  if (f.detail) {
+    bodyContents.push(labeledBlock('⚠️　連　絡　事　項', f.detail));
+  }
+  bodyContents.push(
+    sep(),
+    centerText('詳細は祭り会にお問い合わせください', 'sm', {
+      color: '#444444',
+    }),
+  );
 
-    if (f.time) {
-      block.contents.push(labeledBlock('🌙　時　間', f.time));
-    }
-    if (f.detail) {
-      block.contents.push(labeledBlock('⚠️　連　絡　事　項', f.detail));
-    }
-
-    rowContents.push(block);
-  });
-
-  const bubble = {
+  return {
     type: 'bubble',
     size: 'mega',
     body: {
       type: 'box',
       layout: 'vertical',
       paddingAll: 'lg',
-      contents: [
-        sep(),
-        centerText(FLEX_HEADER_TITLE, 'lg', { weight: 'bold' }),
-        centerText('　　開催まで毎日お届け', 'sm', {
-          color: '#555555',
-          margin: 'xs',
-        }),
-        centerText(`　　${formatDateJa(today)} 現在`, 'sm', {
-          color: '#555555',
-          margin: 'sm',
-        }),
-        sep(),
-        ...rowContents,
-        sep(),
-        centerText('詳細は祭り会にお問い合わせください', 'sm', {
-          color: '#444444',
-          margin: 'md',
-        }),
-      ],
+      backgroundColor: '#ffffff',
+      contents: bodyContents,
     },
   };
+}
 
+/**
+ * 前夜祭カウントダウン: 1件は単一バブル、複数はカルーセル
+ * @param {Array<{name:string,date:string,time?:string,place?:string,detail?:string,daysUntilEve?:number}>} sortedFestivals
+ */
+function buildCountdownFlex(sortedFestivals, today) {
+  if (sortedFestivals.length === 0) {
+    throw new Error('buildCountdownFlex: 対象がありません');
+  }
+  const url = getCountdownImageOriginalUrl();
+  const bubbles = sortedFestivals.map(f => buildCountdownEveCardBubble(f, today, url));
+  const altText =
+    sortedFestivals.length === 1
+      ? `前夜祭のお知らせ: ${sortedFestivals[0].name}（${formatDateJa(today)} 現在）`
+      : `前夜祭のお知らせ（${sortedFestivals.length}件・${formatDateJa(today)} 現在）`.slice(0, 400);
+
+  if (bubbles.length === 1) {
+    return {
+      type: 'flex',
+      altText: altText.slice(0, 400),
+      contents: bubbles[0],
+    };
+  }
   return {
     type: 'flex',
-    altText: `お知らせ（${sortedFestivals.length}件）`.slice(0, 400),
-    contents: bubble,
+    altText: altText.slice(0, 400),
+    contents: {
+      type: 'carousel',
+      contents: bubbles,
+    },
   };
 }
 
@@ -313,4 +379,8 @@ module.exports = {
   buildDayTextMessage,
   buildCountdownText,
   buildCountdownFlex,
+  getCountdownImageOriginalUrl,
+  getCountdownImagePreviewUrl,
+  getCountdownLeaderImageMessage,
+  daysUntilEveFestival,
 };
