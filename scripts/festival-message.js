@@ -246,8 +246,8 @@ function buildCountdownText(sortedFestivals, today) {
   const lines = [
     '━━━━━━━━━━━━━━',
     '📣　お知らせ',
-    '　　前夜祭まで 毎日お届け',
-    `　　（日付＝前夜祭の日）  ${formatDateJa(today)} 現在`,
+    '　　前夜祭まで',
+    `　　${formatDateJa(today)} 現在`,
     '━━━━━━━━━━━━━━',
     '',
   ];
@@ -296,17 +296,17 @@ function buildCountdownEveCardBubble(f, today, _contextUrl) {
   const dow = WEEKDAY_JA[eventDate.getDay()];
 
   const bodyContents = [
+    centerText(FLEX_HEADER_TITLE, 'lg', { weight: 'bold' }),
+    centerText('前夜祭まで', 'sm', { color: '#555555', margin: 'xs' }),
+    centerText(`${formatDateJa(today)} 現在`, 'sm', {
+      color: '#555555',
+      margin: 'sm',
+    }),
+    sep(),
     centerText(numberText, '5xl', {
       weight: 'bold',
       color: '#E91E63',
       margin: 'md',
-    }),
-    sep(),
-    centerText(FLEX_HEADER_TITLE, 'lg', { weight: 'bold' }),
-    centerText('前夜祭まで 毎日お届け', 'sm', { color: '#555555', margin: 'xs' }),
-    centerText(`${formatDateJa(today)} 現在（日付列＝前夜祭）`, 'sm', {
-      color: '#555555',
-      margin: 'sm',
     }),
     sep(),
     centerText(`前夜祭  ${mm}/${dd}（${dow}）`, 'sm', { color: '#555555' }),
