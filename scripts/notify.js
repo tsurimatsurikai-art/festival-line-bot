@@ -4,7 +4,7 @@
  * 使い方:
  *   node scripts/notify.js today     → 今日の祭りを送信
  *   node scripts/notify.js tomorrow  → 明日の祭りを送信
- *   node scripts/notify.js countdown → 開催約6ヶ月前〜当日までの祭りを一覧送信（毎朝ジョブ用）
+ *   node scripts/notify.js countdown → 前夜祭の約6ヶ月前〜前夜祭当日までの祭りを一覧送信（毎朝ジョブ用）
  *
  * 環境変数（.env または GitHub Secrets）:
  *   LINE_CHANNEL_ACCESS_TOKEN  LINE チャネルアクセストークン
@@ -17,6 +17,9 @@
  *   LINE_NOTIFY_IMAGE_PREVIEW_URL   プレビュー用 URL（省略時は ORIGINAL と同じ）
  *   LINE_NOTIFY_NO_FLEX_FALLBACK    1 で Flex 失敗時のテキスト再送を止める
  *   LINE_NOTIFY_DRY_RUN             1 ならスプレッドシート取得・件数確認のみ（LINE API は呼ばない）
+ *   LINE_COUNTDOWN_IMAGE_ORIGINAL_URL  countdown: 1 通目の画像・Flex 用（必須。例: Vercel 配信 URL）
+ *   LINE_COUNTDOWN_IMAGE_PREVIEW_URL  1 通目のプレビュー用（省略時は ORIGINAL と同じ）
+ *   LINE_COUNTDOWN_SKIP_LEADER_IMAGE 1  先頭の画像を付けず 2 通目の Flex のみ
  */
 
 require('./load-env');
@@ -29,9 +32,13 @@ const {
   buildDayTextMessage,
   buildCountdownText,
   buildCountdownFlex,
+  getCountdownLeaderImageMessage,
+  daysUntilEveFestival,
 } = require('./festival-message');
 
 const CAROUSEL_MAX = 12;
+/** LINE カルーセル 1 メッセージあたりの最大バブル数（前夜祭 countdown の Flex 用） */
+const COUNTDOWN_FLEX_CAROUSEL_MAX = 10;
 
 function toDateStr(date) {
   const y = date.getFullYear();
@@ -57,15 +64,16 @@ function addCalendarMonths(date, deltaMonths) {
 }
 
 /**
- * 開催日の約6ヶ月前（同日ベース）〜開催当日まで、今日がその範囲に入る祭り
+ * 前夜祭日（スプレッドシート「日付」列）の約6ヶ月前（同日ベース）〜前夜祭当日まで、
+ * 今日がその範囲に入る祭り
  */
 function filterFestivalsInCountdownWindow(festivals, today) {
   const today0 = startOfLocalDay(today);
   return festivals.filter(f => {
-    const event = dateFromYmd(f.date);
-    const event0 = startOfLocalDay(event);
-    const windowStart0 = startOfLocalDay(addCalendarMonths(event, -6));
-    return today0 >= windowStart0 && today0 <= event0;
+    const eve = dateFromYmd(f.date);
+    const eve0 = startOfLocalDay(eve);
+    const windowStart0 = startOfLocalDay(addCalendarMonths(eve, -6));
+    return today0 >= windowStart0 && today0 <= eve0;
   });
 }
 
@@ -75,6 +83,18 @@ function sortFestivalsByDateAsc(list) {
 
 function getDeliveryMode() {
   return (process.env.LINE_NOTIFY_DELIVERY || 'flex').toLowerCase();
+}
+
+/** countdown: Flex カルーセル件数（LINE 上限 10 超）を避ける */
+function resolveCountdownDelivery(targetCount) {
+  let mode = getDeliveryMode();
+  if (mode === 'flex' && targetCount > COUNTDOWN_FLEX_CAROUSEL_MAX) {
+    console.warn(
+      `祭りが ${targetCount} 件あり、カルーセル上限（${COUNTDOWN_FLEX_CAROUSEL_MAX}件）を超えるため、テキストで送信します（countdown）`,
+    );
+    mode = 'text';
+  }
+  return mode;
 }
 
 function isDryRun() {
@@ -293,10 +313,12 @@ async function notifyTomorrow(festivals, today, outcome) {
 }
 
 async function notifyCountdown(festivals, today, outcome) {
-  const mode = getDeliveryMode();
   const targets = sortFestivalsByDateAsc(
     filterFestivalsInCountdownWindow(festivals, today),
-  );
+  ).map(f => ({
+    ...f,
+    daysUntilEve: daysUntilEveFestival(f.date, today),
+  }));
 
   if (targets.length === 0) {
     outcome.sent = false;
@@ -305,7 +327,7 @@ async function notifyCountdown(festivals, today, outcome) {
         'スプレッドシートに有効な行がありません（祭り名と日付の両方がある行だけ使います）。';
     } else {
       outcome.detail =
-        '「開催の約半年前〜当日」の告知ウィンドウに入る祭りがありません（countdown モード）。';
+        '「前夜祭の約半年前〜前夜祭当日」の告知ウィンドウに入る祭りがありません（countdown モード）。';
       outcome.sampleDates = uniqueSampleDates(festivals);
     }
     console.log('カウントダウン告知の対象となる祭りはありません');
@@ -317,6 +339,7 @@ async function notifyCountdown(festivals, today, outcome) {
 
   if (finishDryRunIfNeeded(targets.length, outcome, 'countdown')) return;
 
+  const mode = resolveCountdownDelivery(targets.length);
   const imgs = optionalImageMessages();
 
   if (mode === 'image') {
@@ -337,9 +360,46 @@ async function notifyCountdown(festivals, today, outcome) {
     return;
   }
 
-  const flex = buildCountdownFlex(targets, today);
   const text = buildCountdownText(targets, today);
-  await broadcastFlexWithTextFallback(imgs, flex, text);
+  let flex;
+  try {
+    flex = buildCountdownFlex(targets, today);
+  } catch (err) {
+    console.warn(
+      '[notify] カウントダウン Flex Message の生成に失敗。テキストで送信します。',
+      err,
+    );
+    await broadcast([...imgs, { type: 'text', text }]);
+    outcome.sent = true;
+    return;
+  }
+
+  // 付加画像 + カウントダウン背景画像 + Flex を 1 リクエストにまとめる（最大 5 件）
+  const firstBatch = [...imgs];
+  const skipLeader =
+    String(process.env.LINE_COUNTDOWN_SKIP_LEADER_IMAGE || '').trim() === '1';
+  console.log(
+    `[notify] countdown: 先頭画像をスキップ(SKIP_LEADER)=${skipLeader} 付加画像メッセージ数=${imgs.length}`,
+  );
+  if (!skipLeader) {
+    if (firstBatch.length < 4) {
+      firstBatch.push(getCountdownLeaderImageMessage());
+    } else {
+      throw new Error(
+        '1 回の送信は最大 5 メッセージのため。LINE_NOTIFY 付加画像を減らすか LINE_COUNTDOWN_SKIP_LEADER_IMAGE=1',
+      );
+    }
+  }
+  const totalInRequest = firstBatch.length + 1; // + flex
+  if (totalInRequest > 5) {
+    throw new Error(
+      '1 回の送信は最大 5 メッセージのため。LINE_NOTIFY 付加画像を減らすか LINE_COUNTDOWN_SKIP_LEADER_IMAGE=1',
+    );
+  }
+  console.log(
+    `[notify] countdown: 送信メッセージ数=${totalInRequest}（画像側=${firstBatch.length} + Flex×1）`,
+  );
+  await broadcastFlexWithTextFallback(firstBatch, flex, text);
   outcome.sent = true;
 }
 

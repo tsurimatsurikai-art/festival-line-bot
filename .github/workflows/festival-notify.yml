@@ -106,7 +106,7 @@ jobs:
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
           LINE_COUNTDOWN_IMAGE_ORIGINAL_URL: ${{ secrets.LINE_COUNTDOWN_IMAGE_ORIGINAL_URL }}
           LINE_COUNTDOWN_IMAGE_PREVIEW_URL: ${{ secrets.LINE_COUNTDOWN_IMAGE_PREVIEW_URL }}
-          LINE_COUNTDOWN_SKIP_LEADER_IMAGE: ''
+          LINE_COUNTDOWN_SKIP_LEADER_IMAGE: '0'
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/notify.js countdown
