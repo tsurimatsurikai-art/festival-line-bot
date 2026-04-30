@@ -27,6 +27,7 @@ on:
 
 env:
   TZ: Asia/Tokyo
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # 手動実行かつ dry_run のときだけ 1（スケジュールでは常に空＝送信する）
   LINE_NOTIFY_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' && '1' || '' }}
 
@@ -39,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
       - name: LINE トークン検証（無効ならここで失敗）
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
@@ -64,7 +65,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
       - name: LINE トークン検証（無効ならここで失敗）
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
@@ -89,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
       - name: LINE トークン検証（無効ならここで失敗）
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
@@ -97,11 +98,15 @@ jobs:
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/verify-line-token.js
+      # 先頭の画像メッセージを送る（Organization 等で LINE_COUNTDOWN_SKIP_LEADER_IMAGE=1 が紛れ込むのを防ぐため明示）
       - name: カウントダウン告知を送信
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
+          LINE_COUNTDOWN_IMAGE_ORIGINAL_URL: ${{ secrets.LINE_COUNTDOWN_IMAGE_ORIGINAL_URL }}
+          LINE_COUNTDOWN_IMAGE_PREVIEW_URL: ${{ secrets.LINE_COUNTDOWN_IMAGE_PREVIEW_URL }}
+          LINE_COUNTDOWN_SKIP_LEADER_IMAGE: ''
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/notify.js countdown
