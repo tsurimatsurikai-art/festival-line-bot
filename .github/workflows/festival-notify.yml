@@ -98,15 +98,13 @@ jobs:
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/verify-line-token.js
-      # 先頭の画像メッセージを送る（Organization 等で LINE_COUNTDOWN_SKIP_LEADER_IMAGE=1 が紛れ込むのを防ぐため明示）
+      # 既定は Flex のみ（先頭のポスター画像は付けない）。画像も付けたいときは Repository secrets に
+      # LINE_COUNTDOWN_IMAGE_ORIGINAL_URL 等を設定し、LINE_COUNTDOWN_SKIP_LEADER_IMAGE=0 を追加する。
       - name: カウントダウン告知を送信
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_GID: ${{ secrets.GOOGLE_SHEET_GID }}
-          LINE_COUNTDOWN_IMAGE_ORIGINAL_URL: ${{ secrets.LINE_COUNTDOWN_IMAGE_ORIGINAL_URL }}
-          LINE_COUNTDOWN_IMAGE_PREVIEW_URL: ${{ secrets.LINE_COUNTDOWN_IMAGE_PREVIEW_URL }}
-          LINE_COUNTDOWN_SKIP_LEADER_IMAGE: '0'
         run: |
           if [ -d festival-line-bot ]; then cd festival-line-bot; fi
           node scripts/notify.js countdown

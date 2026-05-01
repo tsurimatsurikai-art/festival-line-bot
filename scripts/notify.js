@@ -17,9 +17,9 @@
  *   LINE_NOTIFY_IMAGE_PREVIEW_URL   プレビュー用 URL（省略時は ORIGINAL と同じ）
  *   LINE_NOTIFY_NO_FLEX_FALLBACK    1 で Flex 失敗時のテキスト再送を止める
  *   LINE_NOTIFY_DRY_RUN             1 ならスプレッドシート取得・件数確認のみ（LINE API は呼ばない）
- *   LINE_COUNTDOWN_IMAGE_ORIGINAL_URL  countdown: 1 通目の画像・Flex 用（必須。例: Vercel 配信 URL）
- *   LINE_COUNTDOWN_IMAGE_PREVIEW_URL  1 通目のプレビュー用（省略時は ORIGINAL と同じ）
- *   LINE_COUNTDOWN_SKIP_LEADER_IMAGE 1  先頭の画像を付けず 2 通目の Flex のみ
+ *   LINE_COUNTDOWN_IMAGE_ORIGINAL_URL  countdown 先頭画像を付けるときのみ必須（例: Vercel 配信 URL）
+ *   LINE_COUNTDOWN_IMAGE_PREVIEW_URL   先頭画像のプレビュー（省略時は ORIGINAL と同じ）
+ *   LINE_COUNTDOWN_SKIP_LEADER_IMAGE   0 のときだけ先頭画像を付ける（省略・1 などは Flex のみ）
  */
 
 require('./load-env');
@@ -374,26 +374,26 @@ async function notifyCountdown(festivals, today, outcome) {
     return;
   }
 
-  // 付加画像 + カウントダウン背景画像 + Flex を 1 リクエストにまとめる（最大 5 件）
+  // 付加画像 + （任意）先頭のポスター画像 + Flex を 1 リクエストにまとめる（最大 5 件）
   const firstBatch = [...imgs];
-  const skipLeader =
-    String(process.env.LINE_COUNTDOWN_SKIP_LEADER_IMAGE || '').trim() === '1';
+  const includeLeaderImage =
+    String(process.env.LINE_COUNTDOWN_SKIP_LEADER_IMAGE || '').trim() === '0';
   console.log(
-    `[notify] countdown: 先頭画像をスキップ(SKIP_LEADER)=${skipLeader} 付加画像メッセージ数=${imgs.length}`,
+    `[notify] countdown: 先頭ポスター画像を付ける(INCLUDE_LEADER)=${includeLeaderImage} 付加画像メッセージ数=${imgs.length}`,
   );
-  if (!skipLeader) {
+  if (includeLeaderImage) {
     if (firstBatch.length < 4) {
       firstBatch.push(getCountdownLeaderImageMessage());
     } else {
       throw new Error(
-        '1 回の送信は最大 5 メッセージのため。LINE_NOTIFY 付加画像を減らすか LINE_COUNTDOWN_SKIP_LEADER_IMAGE=1',
+        '1 回の送信は最大 5 メッセージのため。LINE_NOTIFY 付加画像を減らすか先頭画像をやめる（LINE_COUNTDOWN_SKIP_LEADER_IMAGE を省略または 1）',
       );
     }
   }
   const totalInRequest = firstBatch.length + 1; // + flex
   if (totalInRequest > 5) {
     throw new Error(
-      '1 回の送信は最大 5 メッセージのため。LINE_NOTIFY 付加画像を減らすか LINE_COUNTDOWN_SKIP_LEADER_IMAGE=1',
+      '1 回の送信は最大 5 メッセージのため。LINE_NOTIFY 付加画像を減らすか先頭画像をやめる（LINE_COUNTDOWN_SKIP_LEADER_IMAGE を省略または 1）',
     );
   }
   console.log(

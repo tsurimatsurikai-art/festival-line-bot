@@ -6,6 +6,7 @@
  * - 詳細 → ⚠️ 連絡事項の行に表示（空なら省略）
  *
  * countdown: 「日付」列は前夜祭の日（残り日数は前夜祭当日までの暦日数）
+ * 先頭のポスター画像は notify 側（既定では送らない）
  */
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
@@ -35,13 +36,15 @@ function calendarDaysUntil(today, eventDate) {
 }
 
 /**
- * カウントダウン用の画像元 URL（1 通目の画像メッセージ・Flex 内の整合用。必須）
+ * カウントダウン先頭の画像メッセージ用 URL（その画像を送るときのみ必須）
  * @returns {string}
  */
 function getCountdownImageOriginalUrl() {
   const o = process.env.LINE_COUNTDOWN_IMAGE_ORIGINAL_URL;
   if (!o || String(o).trim() === '') {
-    throw new Error('LINE_COUNTDOWN_IMAGE_ORIGINAL_URL を設定してください');
+    throw new Error(
+      'LINE_COUNTDOWN_IMAGE_ORIGINAL_URL を設定してください（先頭の画像を送るときのみ必要）',
+    );
   }
   return String(o).trim();
 }
@@ -275,15 +278,11 @@ function buildCountdownText(sortedFestivals, today) {
 }
 
 /**
- * 1件分の Flex バブル（本文のみ。イラストは notify の 1 通目 image で送る）
+ * 1件分の Flex バブル（本文のみ）
  * @param {object} f
  * @param {Date} today
- * @param {string} _contextUrl 内部整合用（空なら不可）
  */
-function buildCountdownEveCardBubble(f, today, _contextUrl) {
-  if (!String(_contextUrl || '').trim()) {
-    throw new Error('countdown: 画像元 URL がありません');
-  }
+function buildCountdownEveCardBubble(f, today) {
   const days =
     typeof f.daysUntilEve === 'number'
       ? f.daysUntilEve
@@ -349,8 +348,7 @@ function buildCountdownFlex(sortedFestivals, today) {
   if (sortedFestivals.length === 0) {
     throw new Error('buildCountdownFlex: 対象がありません');
   }
-  const url = getCountdownImageOriginalUrl();
-  const bubbles = sortedFestivals.map(f => buildCountdownEveCardBubble(f, today, url));
+  const bubbles = sortedFestivals.map(f => buildCountdownEveCardBubble(f, today));
   const altText =
     sortedFestivals.length === 1
       ? `前夜祭のお知らせ: ${sortedFestivals[0].name}（${formatDateJa(today)} 現在）`
